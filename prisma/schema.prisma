@@ -1,0 +1,280 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AgentLog {
+  id        Int      @id @default(autoincrement())
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model CodeSnippet {
+  id        Int       @id @default(autoincrement())
+  title     String
+  code      String
+  language  String
+  tags      String[]  @default([])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+/// Model providers (Gemini, OpenAI, Local/Ollama, etc.)
+model ModelProvider {
+  id         Int       @id @default(autoincrement())
+  name       String
+  provider   String    // e.g., 'gemini' | 'openai' | 'ollama'
+  baseUrl    String?
+  apiKeyRef  String?   // name of env var or secret ref, never store raw keys here
+  modelId    String    // default model id for this provider configuration
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // Relations
+  primaryFor AgentModelMap[] @relation("PrimaryModel")
+  collabFor  AgentModelMap[] @relation("CollaboratorModel")
+}
+
+/// User-defined multi-agent workflows persisted as JSON definition
+model Workflow {
+  id           Int       @id @default(autoincrement())
+  name         String    @unique
+  definition   Json      // stores ordered agent steps, prompts, per-step model mapping
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  agentMaps    AgentModelMap[]
+}
+
+/// Mapping of an agent role to a primary and collaborator model within a workflow
+model AgentModelMap {
+  id                 Int            @id @default(autoincrement())
+  agentRole          String         // e.g., 'Planner' | 'Coder' | 'SecurityAnalyst' | 'Integrator'
+
+  // Relations to ModelProvider for primary and collaborator
+  primaryModelId     Int
+  primaryModel       ModelProvider  @relation("PrimaryModel", fields: [primaryModelId], references: [id])
+
+  collaboratorModelId Int
+  collaboratorModel   ModelProvider  @relation("CollaboratorModel", fields: [collaboratorModelId], references: [id])
+
+  // Workflow relation
+  workflowId         Int
+  workflow           Workflow       @relation(fields: [workflowId], references: [id])
+}
+
+/// Persisted configuration for individual multi-agent pipeline roles
+model MultiAgentConfig {
+  id           Int      @id @default(autoincrement())
+  agentKey     String   @unique
+  name         String
+  role         String
+  model        String
+  temperature  Float
+  systemPrompt String
+  maxRetries   Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Persisted IDE projects for workspace management
+model Project {
+  id          Int                      @id @default(autoincrement())
+  externalId  String                   @unique @default(uuid())
+  name        String
+  rootPath    String?
+  metadata    Json?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  states      ProjectState[]
+  sessions    CollaborationSession[]
+  telemetry   TelemetryEvent[]
+  alerts      AlertSubscription[]
+  anomalies   AnomalyEvent[]
+}
+
+/// Versioned snapshots of IDE UI/application state per user & project
+model ProjectState {
+  id         Int       @id @default(autoincrement())
+  projectId  Int
+  project    Project   @relation(fields: [projectId], references: [id])
+  userId     String
+  snapshot   Json
+  version    Int       @default(1)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([projectId, userId])
+}
+
+/// Telemetry events emitted from the IDE for analytics and monitoring
+model TelemetryEvent {
+  id            Int       @id @default(autoincrement())
+  projectId     Int?
+  project       Project?  @relation(fields: [projectId], references: [id])
+  eventType     String
+  severity      String    @default("info")
+  payload       Json
+  correlationId String?   @unique
+  occurredAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  @@index([projectId])
+}
+
+/// Collaboration sessions persisted for auditing and recovery
+model CollaborationSession {
+  id          Int                       @id @default(autoincrement())
+  sessionId   String                    @unique
+  projectId   Int
+  project     Project                   @relation(fields: [projectId], references: [id])
+  ownerId     String
+  status      String                    @default("active")
+  createdAt   DateTime                  @default(now())
+  expiresAt   DateTime?
+
+  participants CollaborationParticipant[]
+}
+
+model CollaborationParticipant {
+  id         Int                   @id @default(autoincrement())
+  sessionId  Int
+  session    CollaborationSession  @relation(fields: [sessionId], references: [id])
+  userId     String
+  name       String
+  email      String?
+  color      String?
+  joinedAt   DateTime              @default(now())
+  lastSeenAt DateTime              @updatedAt
+  role       String                @default("editor")
+
+  @@unique([sessionId, userId])
+}
+
+/// Notification channels for Slack/email/webhook alerting
+model AlertSubscription {
+  id         Int       @id @default(autoincrement())
+  projectId  Int?
+  project    Project?  @relation(fields: [projectId], references: [id])
+  channel    String
+  target     String
+  enabled    Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+/// Anomaly events emitted from the IDE for analytics and monitoring
+model AnomalyEvent {
+  id            Int       @id @default(autoincrement())
+  projectId     Int?
+  project       Project?  @relation(fields: [projectId], references: [id])
+  eventType     String
+  severity      String    @default("info")
+  payload       Json
+  correlationId String?   @unique
+  occurredAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  @@index([projectId])
+}
+
+/// Quality score observations for agent performance
+model QualityScoreObservation {
+  id         Int      @id @default(autoincrement())
+  agentStage String
+  score      Float
+  drivers    Json
+  metadata   Json?
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([agentStage, occurredAt])
+  @@unique([agentStage, occurredAt])
+}
+
+/// Agent performance metrics
+model AgentPerformanceMetric {
+  id               Int      @id @default(autoincrement())
+  agentStage       String
+  windowStart      DateTime
+  windowEnd        DateTime
+  tasksProcessed   Int
+  avgLatencyMs     Int
+  successRate      Float
+  fallbackRate     Float
+  humanHandOffRate Float
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  @@index([agentStage, windowStart, windowEnd])
+  @@unique([agentStage, windowStart, windowEnd])
+}
+
+/// User engagement metrics
+model UserEngagementMetric {
+  id                    Int      @id @default(autoincrement())
+  windowStart           DateTime
+  windowEnd             DateTime
+  activeUsers           Int
+  collaborationSessions Int
+  avgSessionDurationSec Int
+  featureUsage          Json
+  retentionCohorts      Json?
+  metadata              Json?
+  createdAt             DateTime @default(now())
+
+  @@index([windowStart, windowEnd])
+  @@unique([windowStart, windowEnd])
+}
+
+/// Repository analytics metrics
+model RepositoryAnalyticsMetric {
+  id              Int      @id @default(autoincrement())
+  repository      String
+  branch          String?
+  windowStart     DateTime
+  windowEnd       DateTime
+  commitVelocity  Int
+  refactorHotspots Json
+  coverageDrift   Float
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  @@index([repository, branch, windowStart, windowEnd])
+  @@unique([repository, branch, windowStart, windowEnd])
+}
+
+/// Analytics anomaly events
+model AnalyticsAnomalyEvent {
+  id          Int      @id @default(autoincrement())
+  source      String
+  severity    String
+  description String
+  occurredAt  DateTime @default(now())
+  metadata    Json?
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([source, severity, occurredAt])
+  @@index([resolved])
+  @@unique([source, severity, occurredAt])
+}
+
+/// Cursor storage for analytics ingestion pipelines
+model AnalyticsIngestionState {
+  id              Int      @id @default(autoincrement())
+  pipeline        String   @unique
+  lastProcessedAt DateTime @default(now())
+  metadata        Json?
+  updatedAt       DateTime @updatedAt
+}
