@@ -1,0 +1,1575 @@
+import React, { useState, useCallback, useEffect } from 'react';
+import { AppProvider } from './contexts/AppContext';
+import { useAppReducer } from './hooks/useAppReducer';
+import { AppSettings, saveSession, loadSession } from './utils/sessionManager';
+import { TabbedMainView, Tab } from './components/TabbedMainView';
+import { Header } from './components/Header';
+import { ChatPanel } from './components/ChatPanel';
+import { AICodingToolsPanel } from './components/AICodingToolsPanel';
+import { InteractiveTerminalPanel } from './components/InteractiveTerminalPanel';
+import { WelcomeScreen } from './components/WelcomeScreen';
+import { HelpModal } from './components/HelpModal';
+import { EnterpriseToolsPanel } from './components/EnterpriseToolsPanel';
+import { SnippetsPanel } from './components/SnippetsPanel';
+import { EditableFileView } from './components/EditableFileView';
+import { SourceControlPanel } from './components/SourceControlPanel';
+import { LeftPanel } from './components/LeftPanel';
+import { OptimizedProjectExplorer } from './components/OptimizedProjectExplorer';
+import { AdminModal } from './components/AdminModal';
+import { UndoRedoPanel } from './components/UndoRedoPanel';
+import { initializeTracing, getTracingService } from './services/DistributedTracingService';
+import { NotificationSystem, useNotifications } from './components/NotificationSystem';
+import { initializeAnalytics, trackFeatureUsage, trackError, trackAIInteraction, trackPerformance } from './services/UsageAnalyticsService';
+import { initializeIntelligentAnalysis } from './services/IntelligentCodeAnalysisService';
+import { initializeUndoRedo, getUndoRedoService, UndoRedoCallbacks } from './services/UndoRedoService';
+
+const AppContent: React.FC = () => {
+  const [state, dispatch] = useAppReducer();
+
+  // Initialize distributed tracing
+  useEffect(() => {
+    initializeTracing({
+      serviceName: 'enterprise-code-review-ide',
+      serviceVersion: '1.0.0',
+      environment: typeof process !== 'undefined' ? (process.env?.NODE_ENV || 'development') : 'development',
+      endpoint: typeof process !== 'undefined' ? (process.env?.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'http://localhost:4317') : 'http://localhost:4317',
+      enabled: true,
+    });
+
+    // Initialize usage analytics
+    initializeAnalytics({
+      enabled: true,
+      batchSize: 50,
+      flushInterval: 30000,
+    });
+
+    // Initialize undo/redo service
+    initializeUndoRedo({
+      onFileChange: async (operation) => {
+        // Handle file content rollback
+        if (operation.data.filePath && operation.data.before?.content) {
+          const api = (window as any).electronAPI;
+          if (api?.saveFileContent) {
+            await api.saveFileContent(operation.data.filePath, operation.data.before.content);
+          }
+        }
+      },
+      onSettingChange: async (operation) => {
+        // Handle setting rollback
+        const settingKey = operation.data.metadata?.settingKey;
+        if (settingKey && operation.data.before) {
+          // Update specific setting in appSettings
+          const newAppSettings = {
+            ...state.appSettings,
+            [settingKey]: operation.data.before
+          };
+          dispatch({ type: 'SET_APP_SETTINGS', payload: newAppSettings });
+        }
+      },
+      onProjectChange: async (operation) => {
+        // Handle project path rollback
+        if (operation.data.before?.projectPath) {
+          dispatch({ type: 'SET_PROJECT_PATH', payload: operation.data.before.projectPath });
+        }
+      },
+      onSessionChange: async (operation) => {
+        // Handle session state rollback
+        if (operation.data.before) {
+          // Restore session state
+          Object.keys(operation.data.before).forEach(key => {
+            if (key === 'appSettings') {
+              dispatch({ type: 'SET_APP_SETTINGS', payload: operation.data.before[key] });
+            }
+          });
+        }
+      },
+    });
+
+    // Track application start
+    trackFeatureUsage('app_start', {
+      version: '1.0.0',
+      environment: typeof process !== 'undefined' ? (process.env?.NODE_ENV || 'development') : 'development',
+    });
+  }, [state.appSettings, dispatch]);
+
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('');
+  const [selectedCode, setSelectedCode] = useState<string>('');
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [highlightedLines, setHighlightedLines] = useState<{[filePath: string]: number[]}>({});
+  const [undoHistory, setUndoHistory] = useState<{[filePath: string]: {originalContent: string, timestamp: Date, description: string}[]}>({}); // new state
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [activeFileContent, setActiveFileContent] = useState<string>('');
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isCodeEditorOpen, setIsCodeEditorOpen] = useState(false);
+  const [rightPanelMode, setRightPanelMode] = useState<'tools' | 'chat' | 'enterprise'>('tools');
+  // Right panel layout: tabs (single visible) or split (side-by-side)
+  const [rightPanelLayout, setRightPanelLayout] = useState<'tabs' | 'split'>('tabs');
+  // Resizable right panel width (in pixels)
+  const [rightPanelWidth, setRightPanelWidth] = useState<number>(400);
+  const [isResizingRight, setIsResizingRight] = useState<boolean>(false);
+  // Inner split state (only used when rightPanelLayout === 'split')
+  const [isResizingInner, setIsResizingInner] = useState<boolean>(false);
+  const [innerSplitRatio, setInnerSplitRatio] = useState<number>(0.5);
+  // Left panel active tab: manage locally to ensure interactivity regardless of reducer shape
+  const [leftActiveTab, setLeftActiveTab] = useState<'project' | 'snippets' | 'source'>('project');
+  // Project Explorer interaction state (controls expansion and selection)
+  const [openFolders, setOpenFolders] = useState<string[]>([]);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+
+  const SNIPPETS_STORAGE_KEY = 'ide.snippets.local-store.v1';
+
+  // Initialize notification system
+  const { notifications, addNotification, removeNotification, clearAll, handleAction, showSuccess, showError, showWarning, showInfo } = useNotifications();
+
+  const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    switch (type) {
+      case 'success':
+        showSuccess(message);
+        break;
+      case 'error':
+        showError(message);
+        break;
+      case 'warning':
+        showWarning(message);
+        break;
+      case 'info':
+      default:
+        showInfo(message);
+        break;
+    }
+  }, [showSuccess, showError, showWarning, showInfo]);
+
+  const setLoadingState = useCallback((action: string, value: boolean) => {
+    // Global loading state management - could be extended to track multiple loading states
+    // For now, we'll track loading states in a simple way
+    if (value) {
+      showInfo(`Loading: ${action}`, { duration: 0 }); // Persistent loading notification
+    } else {
+      // Could clear specific loading notifications here
+    }
+  }, [showInfo]);
+
+  const setAppSettings = useCallback((settings: AppSettings) => {
+    dispatch({ type: 'SET_APP_SETTINGS', payload: settings });
+    showSuccess('Settings updated successfully');
+  }, [dispatch, showSuccess]);
+
+  const onFileContentUpdated = (event: Event) => {
+    try {
+      const detail = (event as CustomEvent).detail as {
+        filePath: string;
+        content: string;
+      };
+
+      if (!detail?.filePath || !detail?.content) return;
+
+      // Update the active file content if it's the same file
+      if (activeFilePath === detail.filePath) {
+        setActiveFileContent(detail.content);
+      }
+
+      // Update the tab content for the specific file
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.type === 'file' && tab.filePath === detail.filePath) {
+            return {
+              ...tab,
+              content: (
+                <EditableFileView
+                  filePath={detail.filePath}
+                  content={detail.content}
+                  onContentChange={(next) => setActiveFileContent(next)}
+                  onSelectionChange={(sel) => setSelectedCode(sel)}
+                  onSave={async (fp, data) => {
+                    try {
+                      const api = (window as any).electronAPI;
+                      const res = await api?.saveFileContent?.(fp, data);
+                      if (!res?.success) throw new Error(res?.error || 'Save failed');
+                    } catch (e) {
+                      console.error('Save failed:', e);
+                    }
+                  }}
+                />
+              ),
+            };
+          }
+          return tab;
+        }),
+      );
+    } catch (error) {
+      console.error('Failed to handle file content update:', error);
+    }
+  };
+  // Persist critical state (Admin settings, project path, model selection, right panel prefs) to session storage
+  useEffect(() => {
+    try {
+      const prev = loadSession();
+      saveSession({
+        ...prev,
+        appSettings: state.appSettings,
+        projectPath: state.projectPath,
+        selectedModelId: state.selectedModelId,
+        ui: {
+          ...(prev?.ui || {}),
+          rightPanelMode,
+          rightPanelLayout,
+          rightPanelWidth,
+          innerSplitRatio,
+        },
+      });
+    } catch {
+      // ignore persistence errors to avoid UX interruption
+    }
+  }, [
+    state.appSettings,
+    state.selectedModelId,
+    state.projectPath,
+    rightPanelMode,
+    rightPanelLayout,
+    rightPanelWidth,
+    innerSplitRatio,
+  ]);
+
+  // Rehydrate Admin settings and UI prefs on first mount so they persist across restarts
+  useEffect(() => {
+    try {
+      const saved = loadSession();
+      if (saved && saved.appSettings) {
+        // hydrate only appSettings here to avoid disrupting other runtime state
+        // Optionally hydrate projectPath if available
+        if (saved.projectPath) {
+          dispatch({ type: 'SET_PROJECT_PATH', payload: saved.projectPath });
+        }
+        if (saved.ui) {
+          if (saved.ui.rightPanelMode === 'tools' || saved.ui.rightPanelMode === 'chat' || saved.ui.rightPanelMode === 'enterprise')
+            setRightPanelMode(saved.ui.rightPanelMode);
+          if (saved.ui.rightPanelLayout === 'tabs' || saved.ui.rightPanelLayout === 'split')
+            setRightPanelLayout(saved.ui.rightPanelLayout);
+          if (typeof saved.ui.rightPanelWidth === 'number')
+            setRightPanelWidth(Math.max(240, Math.min(800, saved.ui.rightPanelWidth)));
+          if (typeof saved.ui.innerSplitRatio === 'number')
+            setInnerSplitRatio(Math.max(0.2, Math.min(0.8, saved.ui.innerSplitRatio)));
+        }
+      }
+    } catch {
+      // noop
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle right panel drag-resize lifecycle
+  useEffect(() => {
+    if (!isResizingRight) return;
+    const onMouseMove = (e: MouseEvent) => {
+      // Calculate new width from window edge: container is full width; we resize panel directly
+      // Get bounding rect of the app container (use document.documentElement for simplicity)
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const min = 240; // min width px
+      const max = Math.max(320, Math.floor(viewportWidth * 0.6)); // cap at 60% viewport
+      const proposed = Math.min(max, Math.max(min, viewportWidth - e.clientX));
+      setRightPanelWidth(proposed);
+    };
+    const onMouseUp = () => setIsResizingRight(false);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [isResizingRight]);
+
+  // Handle inner split drag-resize lifecycle
+  useEffect(() => {
+    if (!isResizingInner) return;
+    const onMouseMove = (e: MouseEvent) => {
+      try {
+        // Compute ratio within the right panel bounds
+        const panel = document.querySelector('[data-right-panel]') as HTMLElement | null;
+        if (!panel) return;
+        const rect = panel.getBoundingClientRect();
+        const x = e.clientX - rect.left; // relative to panel
+        const ratio = Math.max(0.2, Math.min(0.8, x / rect.width));
+        setInnerSplitRatio(ratio);
+      } catch {
+        /* noop */
+      }
+    };
+    const onMouseUp = () => setIsResizingInner(false);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [isResizingInner]);
+
+  // Initialize with welcome tab
+  useEffect(() => {
+    if (tabs.length === 0) {
+      const welcomeTab: Tab = {
+        id: 'welcome',
+        title: 'Welcome',
+        type: 'welcome',
+        isClosable: false,
+        content: (
+          <div className="h-full flex items-center justify-center">
+            <WelcomeScreen
+              onOpenFolder={_handleOpenFolder}
+              onOpenFile={_handleOpenFile}
+              onCreateProject={_handleCreateProject}
+            />
+          </div>
+        ),
+      };
+      setTabs([welcomeTab]);
+      setActiveTabId('welcome');
+    }
+  }, [tabs.length]);
+
+  const handleNewFile = useCallback(() => {
+    const newTab: Tab = {
+      id: `file-${Date.now()}`,
+      title: 'Untitled',
+      type: 'file',
+      isDirty: false,
+      content: (
+        <div className="h-full flex flex-col">
+          <div className="flex-1 bg-gray-900 p-4 font-mono text-sm text-gray-300">
+            <div className="text-gray-500">{/* Start coding here... */}</div>
+            <div className="mt-4 text-xs text-gray-600">
+              Use the file tree to select code for AI analysis
+            </div>
+          </div>
+        </div>
+      ),
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }, []);
+
+  const _handleOpenFolder = useCallback(() => {
+    if ((window as any).electronAPI?.openFolderDialog) {
+      (window as any).electronAPI
+        .openFolderDialog()
+        .then((result: any) => {
+          if (result && result.folderPath) {
+            dispatch({ type: 'SET_PROJECT_PATH', payload: result.folderPath });
+            // Switch to editor view
+            const editorTab: Tab = {
+              id: 'editor',
+              title: 'Editor',
+              type: 'file',
+              content: (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <h2 className="text-2xl font-bold text-blue-400 mb-4">Code Editor</h2>
+                    <p className="text-gray-400 mb-4">
+                      Project loaded: {result.folderPath.split(/[/\\]/).pop()}
+                    </p>
+                    <p className="text-sm text-gray-500">Use the file explorer to open files</p>
+                  </div>
+                </div>
+              ),
+            };
+            setTabs((prev) => [...prev.filter((t) => t.id !== 'editor'), editorTab]);
+            setActiveTabId('editor');
+          }
+        })
+        .catch(() => {
+          // Silent catch for folder dialog errors
+        });
+    }
+  }, [dispatch]);
+
+  const _handleOpenFile = useCallback(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.openFileDialog) return;
+    api
+      .openFileDialog()
+      .then(async (result: any) => {
+        if (!result?.filePath) return;
+        const absolutePath = result.filePath as string;
+        let content = '';
+        try {
+          const res = await api.readFile(absolutePath);
+          content = res?.success ? res.content || '' : String(res?.error || 'Unable to read file');
+        } catch (e) {
+          content = e instanceof Error ? e.message : 'Unable to read file';
+        }
+        const title = absolutePath.split(/[/\\]/).pop() || 'file';
+        const fileTab: Tab = {
+          id: `file-${absolutePath}`,
+          title,
+          type: 'file',
+          filePath: absolutePath,
+          content: (
+            <EditableFileView
+              filePath={absolutePath}
+              content={content}
+              onContentChange={(next) => setActiveFileContent(next)}
+              onSelectionChange={(sel) => setSelectedCode(sel)}
+              onSave={async (fp, data) => {
+                try {
+                  const api = (window as any).electronAPI;
+                  const res = await api?.saveFileContent?.(fp, data);
+                  if (!res?.success) throw new Error(res?.error || 'Save failed');
+                  // content already in state
+                } catch (e) {
+                  console.error('Save failed:', e);
+                }
+              }}
+            />
+          ),
+        };
+        setTabs((prev) => [...prev.filter((t) => t.id !== fileTab.id), fileTab]);
+        setActiveTabId(fileTab.id);
+        setActiveFilePath(absolutePath);
+        setActiveFileContent(content);
+      })
+      .catch(() => {
+        /* noop */
+      });
+  }, []);
+
+  const _handleCreateProject = useCallback(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.project?.create) return;
+    api.project
+      .create()
+      .then((res: any) => {
+        if (!res?.success || !res?.projectPath) return;
+        dispatch({ type: 'SET_PROJECT_PATH', payload: res.projectPath });
+        // Open README in a new tab
+        const readmePath = res.readmePath as string | undefined;
+        if (readmePath) {
+          _openFileInEditor(readmePath);
+        }
+      })
+      .catch(() => {
+        /* noop */
+      });
+  }, [dispatch]);
+
+  const _openFileInEditor = useCallback(async (absolutePath: string) => {
+    const api = (window as any).electronAPI;
+    let content = '';
+    try {
+      const res = await api.readFile(absolutePath);
+      content = res?.success ? res.content || '' : String(res?.error || 'Unable to read file');
+    } catch (e) {
+      content = e instanceof Error ? e.message : 'Unable to read file';
+    }
+    const title = absolutePath.split(/[/\\]/).pop() || 'file';
+    const fileTab: Tab = {
+      id: `file-${absolutePath}`,
+      title,
+      type: 'file',
+      filePath: absolutePath,
+      content: (
+        <EditableFileView
+          filePath={absolutePath}
+          content={content}
+          onContentChange={(next) => setActiveFileContent(next)}
+          onSelectionChange={(sel) => setSelectedCode(sel)}
+          onSave={async (fp, data) => {
+            try {
+              const api = (window as any).electronAPI;
+              const res = await api?.saveFileContent?.(fp, data);
+              if (!res?.success) throw new Error(res?.error || 'Save failed');
+            } catch (e) {
+              console.error('Save failed:', e);
+            }
+          }}
+        />
+      ),
+    };
+    setTabs((prev) => [...prev.filter((t) => t.id !== fileTab.id), fileTab]);
+    setActiveTabId(fileTab.id);
+    setActiveFilePath(absolutePath);
+    setActiveFileContent(content);
+  }, [activeFilePath, setActiveFileContent]);
+
+  useEffect(() => {
+    const onFileContentUpdated = (event: Event) => {
+      try {
+        const detail = (event as CustomEvent).detail as {
+          filePath: string;
+          content: string;
+        };
+
+        if (!detail?.filePath || !detail?.content) return;
+
+        // Update the active file content if it's the same file
+        if (activeFilePath === detail.filePath) {
+          setActiveFileContent(detail.content);
+        }
+
+        // Update the tab content for the specific file
+        setTabs((prev) =>
+          prev.map((tab) => {
+            if (tab.type === 'file' && tab.filePath === detail.filePath) {
+              return {
+                ...tab,
+                content: (
+                  <EditableFileView
+                    filePath={detail.filePath}
+                    content={detail.content}
+                    onContentChange={(next) => setActiveFileContent(next)}
+                    onSelectionChange={(sel) => setSelectedCode(sel)}
+                    onSave={async (fp, data) => {
+                      try {
+                        const api = (window as any).electronAPI;
+                        const res = await api?.saveFileContent?.(fp, data);
+                        if (!res?.success) throw new Error(res?.error || 'Save failed');
+                      } catch (e) {
+                        console.error('Save failed:', e);
+                      }
+                    }}
+                  />
+                ),
+              };
+            }
+            return tab;
+          }),
+        );
+      } catch (error) {
+        console.error('Failed to handle file content update:', error);
+      }
+    };
+
+    const onBackupFileContent = (event: Event) => {
+      try {
+        const detail = (event as CustomEvent).detail as {
+          filePath: string;
+          originalContent: string;
+          description: string;
+        };
+
+        if (!detail?.filePath || !detail?.originalContent) return;
+
+        // Add to undo history
+        setUndoHistory(prev => ({
+          ...prev,
+          [detail.filePath]: [
+            ...(prev[detail.filePath] || []),
+            {
+              originalContent: detail.originalContent,
+              timestamp: new Date(),
+              description: detail.description
+            }
+          ]
+        }));
+
+      } catch (error) {
+        console.error('Failed to backup file content:', error);
+      }
+    };
+
+  import React, { useState, useCallback, useEffect } from 'react';
+import { AppProvider } from './contexts/AppContext';
+import { useAppReducer } from './hooks/useAppReducer';
+import { AppSettings, saveSession, loadSession } from './utils/sessionManager';
+import { TabbedMainView, Tab } from './components/TabbedMainView';
+import { Header } from './components/Header';
+import { ChatPanel } from './components/ChatPanel';
+import { AICodingToolsPanel } from './components/AICodingToolsPanel';
+import { InteractiveTerminalPanel } from './components/InteractiveTerminalPanel';
+import { WelcomeScreen } from './components/WelcomeScreen';
+import { HelpModal } from './components/HelpModal';
+import { EnterpriseToolsPanel } from './components/EnterpriseToolsPanel';
+import { SnippetsPanel } from './components/SnippetsPanel';
+import { EditableFileView } from './components/EditableFileView';
+import { SourceControlPanel } from './components/SourceControlPanel';
+import { LeftPanel } from './components/LeftPanel';
+import { OptimizedProjectExplorer } from './components/OptimizedProjectExplorer';
+import { AdminModal } from './components/AdminModal';
+import { UndoRedoPanel } from './components/UndoRedoPanel';
+import { initializeTracing, getTracingService } from './services/DistributedTracingService';
+import { initializeAnalytics, trackFeatureUsage, trackError, trackAIInteraction, trackPerformance } from './services/UsageAnalyticsService';
+import { initializeIntelligentAnalysis } from './services/IntelligentCodeAnalysisService';
+import { initializeUndoRedo, getUndoRedoService, UndoRedoCallbacks } from './services/UndoRedoService';
+import { NotificationSystem, useNotifications } from './components/NotificationSystem';
+
+const AppContent: React.FC = () => {
+  const [state, dispatch] = useAppReducer();
+
+  // Initialize distributed tracing
+  useEffect(() => {
+    initializeTracing({
+      serviceName: 'enterprise-code-review-ide',
+      serviceVersion: '1.0.0',
+      environment: typeof process !== 'undefined' ? (process.env?.NODE_ENV || 'development') : 'development',
+      endpoint: typeof process !== 'undefined' ? (process.env?.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'http://localhost:4317') : 'http://localhost:4317',
+      enabled: true,
+    });
+
+    // Initialize usage analytics
+    initializeAnalytics({
+      enabled: true,
+      batchSize: 50,
+      flushInterval: 30000,
+    });
+
+    // Initialize undo/redo service
+    initializeUndoRedo({
+      onFileChange: async (operation) => {
+        // Handle file content rollback
+        if (operation.data.filePath && operation.data.before?.content) {
+          const api = (window as any).electronAPI;
+          if (api?.saveFileContent) {
+            await api.saveFileContent(operation.data.filePath, operation.data.before.content);
+          }
+        }
+      },
+      onSettingChange: async (operation) => {
+        // Handle setting rollback
+        const settingKey = operation.data.metadata?.settingKey;
+        if (settingKey && operation.data.before) {
+          // Update specific setting in appSettings
+          const newAppSettings = {
+            ...state.appSettings,
+            [settingKey]: operation.data.before
+          };
+          dispatch({ type: 'SET_APP_SETTINGS', payload: newAppSettings });
+        }
+      },
+      onProjectChange: async (operation) => {
+        // Handle project path rollback
+        if (operation.data.before?.projectPath) {
+          dispatch({ type: 'SET_PROJECT_PATH', payload: operation.data.before.projectPath });
+        }
+      },
+      onSessionChange: async (operation) => {
+        // Handle session state rollback
+        if (operation.data.before) {
+          // Restore session state
+          Object.keys(operation.data.before).forEach(key => {
+            if (key === 'appSettings') {
+              dispatch({ type: 'SET_APP_SETTINGS', payload: operation.data.before[key] });
+            }
+          });
+        }
+      },
+    });
+
+    // Track application start
+    trackFeatureUsage('app_start', {
+      version: '1.0.0',
+      environment: typeof process !== 'undefined' ? (process.env?.NODE_ENV || 'development') : 'development',
+    });
+  }, [state.appSettings, dispatch]);
+
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('');
+  const [selectedCode, setSelectedCode] = useState<string>('');
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [highlightedLines, setHighlightedLines] = useState<{[filePath: string]: number[]}>({});
+  const [undoHistory, setUndoHistory] = useState<{[filePath: string]: {originalContent: string, timestamp: Date, description: string}[]}>({});
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [activeFileContent, setActiveFileContent] = useState<string>('');
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isCodeEditorOpen, setIsCodeEditorOpen] = useState(false);
+  const [rightPanelMode, setRightPanelMode] = useState<'tools' | 'chat' | 'enterprise'>('tools');
+  // Right panel layout: tabs (single visible) or split (side-by-side)
+  const [rightPanelLayout, setRightPanelLayout] = useState<'tabs' | 'split'>('tabs');
+  // Resizable right panel width (in pixels)
+  const [rightPanelWidth, setRightPanelWidth] = useState<number>(400);
+  const [isResizingRight, setIsResizingRight] = useState<boolean>(false);
+  // Inner split state (only used when rightPanelLayout === 'split')
+  const [isResizingInner, setIsResizingInner] = useState<boolean>(false);
+  const [innerSplitRatio, setInnerSplitRatio] = useState<number>(0.5);
+  // Left panel active tab: manage locally to ensure interactivity regardless of reducer shape
+  const [leftActiveTab, setLeftActiveTab] = useState<'project' | 'snippets' | 'source'>('project');
+  // Project Explorer interaction state (controls expansion and selection)
+  const [openFolders, setOpenFolders] = useState<string[]>([]);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+
+  const SNIPPETS_STORAGE_KEY = 'ide.snippets.local-store.v1';
+
+  // Initialize notification system
+  const { notifications, addNotification, removeNotification, clearAll, handleAction, showSuccess, showError, showWarning, showInfo } = useNotifications();
+
+  const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    switch (type) {
+      case 'success':
+        showSuccess(message);
+        break;
+      case 'error':
+        showError(message);
+        break;
+      case 'warning':
+        showWarning(message);
+        break;
+      case 'info':
+      default:
+        showInfo(message);
+        break;
+    }
+  }, [showSuccess, showError, showWarning, showInfo]);
+
+  const setLoadingState = useCallback((action: string, value: boolean) => {
+    // Global loading state management - could be extended to track multiple loading states
+    if (value) {
+      showInfo(`Loading: ${action}`, { duration: 0 }); // Persistent loading notification
+    } else {
+      // Could clear specific loading notifications here
+    }
+  }, [showInfo]);
+
+  const setAppSettings = useCallback((settings: AppSettings) => {
+    dispatch({ type: 'SET_APP_SETTINGS', payload: settings });
+    showSuccess('Settings updated successfully');
+  }, [dispatch, showSuccess]);
+
+  const onEnterpriseFixApplied = useCallback((event: Event) => {
+    // Handle enterprise fix applied event
+    showSuccess('Enterprise fix applied successfully');
+  }, [showSuccess]);
+
+  const onFileContentUpdated = (event: Event) => {
+    try {
+      const detail = (event as CustomEvent).detail as {
+        filePath: string;
+        content: string;
+      };
+
+      if (!detail?.filePath || !detail?.content) return;
+
+      // Update the active file content if it's the same file
+      if (activeFilePath === detail.filePath) {
+        setActiveFileContent(detail.content);
+      }
+
+      // Update the tab content for the specific file
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.type === 'file' && tab.filePath === detail.filePath) {
+            return {
+              ...tab,
+              content: (
+                <EditableFileView
+                  filePath={detail.filePath}
+                  content={detail.content}
+                  onContentChange={(next) => setActiveFileContent(next)}
+                  onSelectionChange={(sel) => setSelectedCode(sel)}
+                  onSave={async (fp, data) => {
+                    try {
+                      const api = (window as any).electronAPI;
+                      const res = await api?.saveFileContent?.(fp, data);
+                      if (!res?.success) throw new Error(res?.error || 'Save failed');
+                    } catch (e) {
+                      console.error('Save failed:', e);
+                    }
+                  }}
+                />
+              ),
+            };
+          }
+          return tab;
+        }),
+      );
+    } catch (error) {
+      console.error('Failed to handle file content update:', error);
+    }
+  };
+
+  const onBackupFileContent = useCallback((event: Event) => {
+    try {
+      const detail = (event as CustomEvent).detail as {
+        filePath: string;
+        originalContent: string;
+        description: string;
+      };
+
+      if (!detail?.filePath || !detail?.originalContent) return;
+
+      // Add to undo history
+      setUndoHistory(prev => ({
+        ...prev,
+        [detail.filePath]: [
+          ...(prev[detail.filePath] || []),
+          {
+            originalContent: detail.originalContent,
+            timestamp: new Date(),
+            description: detail.description
+          }
+        ]
+      }));
+
+    } catch (error) {
+      console.error('Failed to backup file content:', error);
+    }
+  }, []);
+
+  const onUndoEnterpriseFix = useCallback((event: Event) => {
+    try {
+      const detail = (event as CustomEvent).detail as {
+        filePath: string;
+        description: string;
+      };
+
+      if (!detail?.filePath) return;
+
+      // Get the most recent backup for this file
+      const fileBackups = undoHistory[detail.filePath];
+      if (!fileBackups || fileBackups.length === 0) {
+        console.warn('No backup found for undo operation');
+        return;
+      }
+
+      const latestBackup = fileBackups[fileBackups.length - 1];
+
+      // Restore the original content
+      setActiveFileContent(latestBackup.originalContent);
+
+      // Update the tab content
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.type === 'file' && tab.filePath === detail.filePath) {
+            return {
+              ...tab,
+              content: (
+                <EditableFileView
+                  filePath={detail.filePath}
+                  content={latestBackup.originalContent}
+                  onContentChange={(next) => setActiveFileContent(next)}
+                  onSelectionChange={(sel) => setSelectedCode(sel)}
+                  onSave={async (fp, data) => {
+                    try {
+                      const api = (window as any).electronAPI;
+                      const res = await api?.saveFileContent?.(fp, data);
+                      if (!res?.success) throw new Error(res?.error || 'Save failed');
+                    } catch (e) {
+                      console.error('Save failed:', e);
+                    }
+                  }}
+                />
+              ),
+            };
+          }
+          return tab;
+        }),
+      );
+
+      // Save the restored content
+      const api = (window as any).electronAPI;
+      api?.saveFileContent?.(detail.filePath, latestBackup.originalContent);
+
+      // Remove the used backup from history
+      setUndoHistory(prev => ({
+        ...prev,
+        [detail.filePath]: prev[detail.filePath]?.slice(0, -1) || []
+      }));
+
+      console.log('Successfully undid fix:', detail.description);
+
+    } catch (error) {
+      console.error('Failed to undo enterprise fix:', error);
+    }
+  }, [undoHistory]);
+
+  // Event listeners for enterprise fixes and file updates
+  useEffect(() => {
+    window.addEventListener('ide:enterprise-fix-applied' as any, onEnterpriseFixApplied as any);
+    window.addEventListener('ide:file-content-updated' as any, onFileContentUpdated as any);
+    window.addEventListener('ide:backup-file-content' as any, onBackupFileContent as any);
+    window.addEventListener('ide:undo-enterprise-fix' as any, onUndoEnterpriseFix as any);
+    return () => {
+      window.removeEventListener('ide:enterprise-fix-applied' as any, onEnterpriseFixApplied as any);
+      window.removeEventListener('ide:file-content-updated' as any, onFileContentUpdated as any);
+      window.removeEventListener('ide:backup-file-content' as any, onBackupFileContent as any);
+      window.removeEventListener('ide:undo-enterprise-fix' as any, onUndoEnterpriseFix as any);
+    };
+  }, [onEnterpriseFixApplied, onFileContentUpdated, onBackupFileContent, onUndoEnterpriseFix]);
+
+    window.addEventListener('ide:enterprise-fix-applied' as any, onEnterpriseFixApplied as any);
+    window.addEventListener('ide:file-content-updated' as any, onFileContentUpdated as any);
+    window.addEventListener('ide:backup-file-content' as any, onBackupFileContent as any);
+    window.addEventListener('ide:undo-enterprise-fix' as any, onUndoEnterpriseFix as any);
+    return () => {
+      window.removeEventListener('ide:enterprise-fix-applied' as any, onEnterpriseFixApplied as any);
+      window.removeEventListener('ide:file-content-updated' as any, onFileContentUpdated as any);
+      window.removeEventListener('ide:backup-file-content' as any, onBackupFileContent as any);
+      window.removeEventListener('ide:undo-enterprise-fix' as any, onUndoEnterpriseFix as any);
+    };
+  }, [activeFilePath, setActiveFileContent, setSelectedCode, undoHistory]);
+
+  const _handleCodeSelection = useCallback(
+    (code: string, language: string) => {
+      setSelectedCode(code);
+      setSelectedLanguage(language);
+      // Open tools panel
+      const toolsTab: Tab = {
+        id: 'tools',
+        title: 'AI Tools',
+        type: 'report',
+        content: (
+          <AICodingToolsPanel
+            selectedCode={selectedCode || activeFileContent}
+            language={selectedLanguage}
+            filePath={activeFilePath || ''}
+            projectPath={state.projectPath || ''}
+          />
+        ),
+      };
+      setTabs((prev) => [...prev.filter((t) => t.id !== 'tools'), toolsTab]);
+      setActiveTabId('tools');
+    },
+    [selectedCode, selectedLanguage, activeFileContent, activeFilePath, state.projectPath],
+  );
+
+  const _openChat = useCallback(() => {
+    // Open Chat in the right panel so code remains visible
+    setRightPanelMode('chat');
+    dispatch({ type: 'SET_RIGHT_PANEL_OPEN', payload: true });
+  }, [dispatch]);
+
+  const handleChatDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    try {
+      const types = Array.from(event.dataTransfer?.types || []);
+      if (types.includes('application/x-ide-file') || types.includes('Files')) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }
+    } catch {
+      // noop
+    }
+  }, []);
+
+  const handleChatDrop = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>) => {
+      try {
+        event.preventDefault();
+        let absolutePath = '';
+        const relative = event.dataTransfer.getData('application/x-ide-file');
+        if (relative) {
+          const base = state.projectPath || '';
+          const sep = base.endsWith('/') || base.endsWith('\\') ? '' : '/';
+          absolutePath = `${base}${sep}${relative}`;
+        } else if ((event.dataTransfer.files || []).length > 0) {
+          absolutePath = event.dataTransfer.files[0]?.path || '';
+        }
+        if (!absolutePath) return;
+
+        let content = '';
+        try {
+          const res = await (window as any).electronAPI?.readFile?.(absolutePath);
+          if (res?.success) {
+            content = res.content || '';
+          } else {
+            content = String(res?.error || 'Unable to read file');
+          }
+        } catch (err) {
+          content = err instanceof Error ? err.message : 'Unable to read file';
+        }
+
+        const title = absolutePath.split(/[\/\\]/).pop() || 'file';
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            author: 'system',
+            content: `Dropped file: ${title}\n\n\u0060\u0060\u0060\n${content}\n\u0060\u0060\u0060`,
+          },
+        ]);
+      } catch {
+        // noop
+      }
+    },
+    [state.projectPath],
+  );
+
+  const handleChatSend = useCallback(
+    async (message: string, _imageBase64?: string) => {
+      const api = (window as any).electronAPI;
+      try {
+        setIsChatLoading(true);
+        setChatMessages((prev) => [...prev, { author: 'user', content: message }]);
+        const effectiveContext = selectedCode?.trim() ? selectedCode : activeFileContent;
+        const context = effectiveContext?.trim()
+          ? `\n\nContext (selected code):\n\n\u0060\u0060\u0060\n${effectiveContext}\n\u0060\u0060\u0060`
+          : '';
+        const prompt = `${message}${context}`;
+        const contents = [{ role: 'user', parts: [{ text: prompt }] }];
+        const replyText = await api?.gemini?.chat?.(
+          contents,
+          state.appSettings,
+          state.selectedModelId || 'gemini-2.5-flash',
+        );
+        setChatMessages((prev) => [
+          ...prev,
+          { author: 'model', content: String(replyText || '').trim() },
+        ]);
+      } catch (err) {
+        const errorText = err instanceof Error ? err.message : 'Chat failed';
+        setChatMessages((prev) => [...prev, { author: 'model', content: `Error: ${errorText}` }]);
+      } finally {
+        setIsChatLoading(false);
+      }
+    },
+    [selectedCode, activeFileContent, state.appSettings, state.selectedModelId],
+  );
+
+  const handleChatApplyEdit = useCallback(
+    (code: string) => {
+      if (!code?.trim()) return;
+      if (!activeFilePath) {
+        console.warn('[Chat] Apply edit skipped: no active file open.');
+        return;
+      }
+
+      const api = (window as any).electronAPI;
+      setActiveFileContent(code);
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.type === 'file' && tab.filePath === activeFilePath) {
+            return {
+              ...tab,
+              content: (
+                <EditableFileView
+                  filePath={activeFilePath}
+                  content={code}
+                  onContentChange={(next) => setActiveFileContent(next)}
+                  onSelectionChange={(sel) => setSelectedCode(sel)}
+                  onSave={async (fp, data) => {
+                    try {
+                      const res = await api?.saveFileContent?.(fp, data);
+                      if (!res?.success) throw new Error(res?.error || 'Save failed');
+                    } catch (e) {
+                      console.error('Save failed:', e);
+                    }
+                  }}
+                />
+              ),
+            };
+          }
+          return tab;
+        }),
+      );
+    },
+    [activeFilePath, setActiveFileContent, setSelectedCode],
+  );
+
+  const handleChatInsertSnippet = useCallback(
+    (code: string) => {
+      if (!code?.trim()) return;
+      const timestamp = new Date();
+      const snippet = {
+        id: Date.now(),
+        title: `Chat Snippet ${timestamp.toLocaleTimeString()}`,
+        code,
+        language: selectedLanguage || 'plaintext',
+        tags: ['chat'],
+      };
+
+      try {
+        const raw = localStorage.getItem(SNIPPETS_STORAGE_KEY);
+        const existing = raw ? JSON.parse(raw) : [];
+        localStorage.setItem(SNIPPETS_STORAGE_KEY, JSON.stringify([snippet, ...existing]));
+        window.dispatchEvent(new CustomEvent('ide:snippets-refresh'));
+      } catch (e) {
+        console.warn('Unable to persist chat snippet', e);
+      }
+
+      setLeftActiveTab('snippets');
+
+      const snippetTabId = `chat-snippet-${Date.now()}`;
+      setTabs((prev) => [
+        ...prev,
+        {
+          id: snippetTabId,
+          title: snippet.title,
+          type: 'report',
+          content: (
+            <div className="h-full flex flex-col">
+              <div className="px-3 py-2 border-b border-gray-700 bg-gray-800 text-gray-200 text-sm font-medium">
+                {snippet.title}
+              </div>
+              <pre className="flex-1 bg-gray-900 text-gray-200 font-mono text-sm p-4 overflow-auto whitespace-pre-wrap">
+                {snippet.code}
+              </pre>
+            </div>
+          ),
+        },
+      ]);
+      setActiveTabId(snippetTabId);
+    },
+    [selectedLanguage],
+  );
+
+  const chatPanelContent = (scrollContainerClass: string) => (
+    <>
+      <h3 className="text-lg font-semibold mb-2">Chat</h3>
+      <div className={scrollContainerClass}>
+        <ChatPanel
+          messages={chatMessages}
+          onSendMessage={handleChatSend}
+          isLoading={isChatLoading}
+          onApplyEdit={handleChatApplyEdit}
+          onInsertSnippet={handleChatInsertSnippet}
+          availableModels={state.appSettings.availableModels || []}
+          selectedModelId={state.selectedModelId || 'gemini-2.5-flash'}
+          onModelChange={(_modelId: string) => {}}
+        />
+      </div>
+    </>
+  );
+
+  const openTerminal = useCallback(() => {
+    const terminalTab: Tab = {
+      id: 'terminal',
+      title: 'Terminal',
+      type: 'terminal',
+      content: <InteractiveTerminalPanel projectPath={state.projectPath || ''} />,
+    };
+    setTabs((prev) => [...prev.filter((t) => t.id !== 'terminal'), terminalTab]);
+    setActiveTabId('terminal');
+  }, [state.projectPath]);
+
+  const handleTabChange = useCallback((tabId: string) => {
+    setActiveTabId(tabId);
+  }, []);
+
+  const handleTabClose = useCallback(
+    (tabId: string) => {
+      setTabs((prev) => prev.filter((t) => t.id !== tabId));
+      if (activeTabId === tabId) {
+        const remainingTabs = tabs.filter((t) => t.id !== tabId);
+        setActiveTabId(remainingTabs.length > 0 ? remainingTabs[0].id : null);
+      }
+    },
+    [activeTabId, tabs],
+  );
+
+  const handleTabReorder = useCallback((newTabs: Tab[]) => {
+    setTabs(newTabs);
+  }, []);
+
+  return (
+    <div className="h-screen bg-background text-text-primary font-sans flex flex-col">
+      {/* Enterprise Header with all features */}
+      <Header
+        onNewSessionClick={handleNewFile}
+        onOpenFolderClick={_handleOpenFolder}
+        onChatClick={_openChat}
+        onToggleTools={() => {
+          setRightPanelMode('tools');
+          dispatch({ type: 'SET_RIGHT_PANEL_OPEN', payload: true });
+        }}
+        onToggleEnterpriseTools={() => {
+          setRightPanelMode('enterprise');
+          dispatch({ type: 'SET_RIGHT_PANEL_OPEN', payload: true });
+        }}
+        onAdminClick={() => setIsAdminModalOpen(true)}
+        onHelpClick={() => setIsHelpModalOpen(true)}
+        onTerminalClick={openTerminal}
+        toggleLeftPanel={() =>
+          dispatch({ type: 'SET_LEFT_PANEL_OPEN', payload: !state.isLeftPanelOpen })
+        }
+        toggleRightPanel={() =>
+          dispatch({ type: 'SET_RIGHT_PANEL_OPEN', payload: !state.isRightPanelOpen })
+        }
+      />
+
+      {/* Main IDE Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Panel with full project explorer */}
+        {state.isLeftPanelOpen && (
+          <div className="w-64 border-r border-border bg-panel">
+            <LeftPanel
+              activeTab={leftActiveTab}
+              onTabChange={(tab) => setLeftActiveTab(tab)}
+              alwaysShowProject={true}
+              projectContent={
+                <OptimizedProjectExplorer
+                  projectPath={state.projectPath || ''}
+                  onFileSelect={async (relativePath) => {
+                    setSelectedFiles([relativePath]);
+                    const base = state.projectPath || '';
+                    const sep = base.endsWith('/') || base.endsWith('\\') ? '' : '/';
+                    const absolutePath = `${base}${sep}${relativePath}`;
+                    let content = '';
+                    try {
+                      const res = await (window as any).electronAPI?.readFile?.(absolutePath);
+                      if (res?.success) content = res.content || '';
+                      else content = String(res?.error || 'Unable to read file');
+                    } catch (e) {
+                      content = e instanceof Error ? e.message : 'Unable to read file';
+                    }
+                    const fileTab: Tab = {
+                      id: `file-${relativePath}`,
+                      title: relativePath.split('/').pop() || relativePath,
+                      type: 'file',
+                      filePath: absolutePath,
+                      content: (
+                        <EditableFileView
+                          filePath={absolutePath}
+                          content={content}
+                          onContentChange={(next) => setActiveFileContent(next)}
+                          onSelectionChange={(sel) => setSelectedCode(sel)}
+                          onSave={async (fp, data) => {
+                            try {
+                              const api = (window as any).electronAPI;
+                              const res = await api?.saveFileContent?.(fp, data);
+                              if (!res?.success) throw new Error(res?.error || 'Save failed');
+                            } catch (e) {
+                              console.error('Save failed:', e);
+                            }
+                          }}
+                        />
+                      ),
+                    };
+                    setTabs((prev) => [...prev.filter((t) => t.id !== fileTab.id), fileTab]);
+                    setActiveTabId(fileTab.id);
+                    setActiveFilePath(absolutePath);
+                    setActiveFileContent(content);
+                  }}
+                  onFolderToggle={(folderPath, isExpanded) => {
+                    setOpenFolders((prev) => {
+                      const exists = prev.includes(folderPath);
+                      if (isExpanded && !exists) return [...prev, folderPath];
+                      if (!isExpanded && exists) return prev.filter((p) => p !== folderPath);
+                      return prev;
+                    });
+                  }}
+                  selectedFiles={selectedFiles}
+                  openFolders={openFolders}
+                  virtualizeThreshold={1000}
+                />
+              }
+              snippetsContent={
+                <SnippetsPanel
+                  projectPath={state.projectPath || ''}
+                  onInsertIntoEditor={(code) => {
+                    // Insert into active file tab by creating a new tab if none is active
+                    const active = tabs.find((t) => t.id === activeTabId);
+                    if (!active || active.type !== 'file' || !active.filePath) {
+                      const newTab: Tab = {
+                        id: `snippet-${Date.now()}`,
+                        title: 'Snippet',
+                        type: 'file',
+                        content: (
+                          <div className="h-full flex flex-col">
+                            <div className="flex-1 bg-gray-900 p-4 font-mono text-sm text-gray-300 whitespace-pre-wrap">
+                              <pre className="text-gray-300" aria-label="file-contents">
+                                {code}
+                              </pre>
+                            </div>
+                          </div>
+                        ),
+                      };
+                      setTabs((prev) => [...prev, newTab]);
+                      setActiveTabId(newTab.id);
+                    } else {
+                      // For now, open a new tab with the snippet content to preserve existing features without destructive edits
+                      const newTab: Tab = {
+                        id: `snippet-${Date.now()}`,
+                        title: 'Snippet',
+                        type: 'file',
+                        content: (
+                          <div className="h-full flex flex-col">
+                            <div className="flex-1 bg-gray-900 p-4 font-mono text-sm text-gray-300 whitespace-pre-wrap">
+                              <pre className="text-gray-300" aria-label="file-contents">
+                                {code}
+                              </pre>
+                            </div>
+                          </div>
+                        ),
+                      };
+                      setTabs((prev) => [...prev, newTab]);
+                      setActiveTabId(newTab.id);
+                    }
+                  }}
+                />
+              }
+              sourceContent={
+                <SourceControlPanel
+                  repoPath={state.projectPath || null}
+                  onDiffRequest={(file) => {
+                    // Open the file for now; integrating a full diff viewer can follow
+                    const base = state.projectPath || '';
+                    const sep = base.endsWith('/') || base.endsWith('\\') ? '' : '/';
+                    const absolutePath = `${base}${sep}${file}`;
+                    _openFileInEditor(absolutePath);
+                  }}
+                  onGenerateCommitMessage={async () => {
+                    const api = (window as any).electronAPI;
+                    try {
+                      const msgRes = await api?.git?.aiCommitMessage?.(
+                        state.projectPath,
+                        state.appSettings,
+                        state.selectedModelId || 'gemini-2.5-flash',
+                      );
+                      if (typeof msgRes === 'string') return msgRes;
+                      if (msgRes?.message) return msgRes.message;
+                      throw new Error('AI did not return a message');
+                    } catch (e: any) {
+                      throw new Error(e?.message || 'Failed to generate AI commit message');
+                    }
+                  }}
+                />
+              }
+            />
+          </div>
+        )}
+
+        {/* Main Content Area with full tabbed interface (drop target) */}
+        <div
+          className="flex-1 flex flex-col"
+          onDragOver={(e) => {
+            try {
+              if (Array.from(e.dataTransfer.types || []).includes('application/x-ide-file')) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+              }
+            } catch {
+              /* noop */
+            }
+          }}
+          onDrop={async (e) => {
+            try {
+              const rel = e.dataTransfer.getData('application/x-ide-file');
+              if (!rel) return;
+              e.preventDefault();
+              // mirror onFileSelect logic
+              setSelectedFiles([rel]);
+              const base = state.projectPath || '';
+              const sep = base.endsWith('/') || base.endsWith('\\') ? '' : '/';
+              const absolutePath = `${base}${sep}${rel}`;
+              let content = '';
+              try {
+                const res = await (window as any).electronAPI?.readFile?.(absolutePath);
+                if (res?.success) {
+                  content = res.content || '';
+                } else {
+                  content = String(res?.error || 'Unable to read file');
+                }
+              } catch (err) {
+                content = err instanceof Error ? err.message : 'Unable to read file';
+              }
+              const fileTab: Tab = {
+                id: `file-${rel}`,
+                title: rel.split('/').pop() || rel,
+                type: 'file',
+                filePath: absolutePath,
+                content: (
+                  <EditableFileView
+                    filePath={absolutePath}
+                    content={content}
+                    onContentChange={(next) => setActiveFileContent(next)}
+                    onSelectionChange={(sel) => setSelectedCode(sel)}
+                    onSave={async (fp, data) => {
+                      try {
+                        const api = (window as any).electronAPI;
+                        const res = await api?.saveFileContent?.(fp, data);
+                        if (!res?.success) throw new Error(res?.error || 'Save failed');
+                      } catch (e) {
+                        console.error('Save failed:', e);
+                      }
+                    }}
+                  />
+                ),
+              };
+              setTabs((prev) => [...prev.filter((t) => t.id !== fileTab.id), fileTab]);
+              setActiveTabId(fileTab.id);
+              setActiveFilePath(absolutePath);
+              setActiveFileContent(content);
+            } catch {
+              /* noop */
+            }
+          }}
+        >
+          <TabbedMainView
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onTabChange={handleTabChange}
+            onTabClose={handleTabClose}
+            onTabReorder={handleTabReorder}
+          />
+        </div>
+
+        {/* Resizer and Right Panel with full AI tools */}
+        {state.isRightPanelOpen && (
+          <>
+            {/* Vertical resizer */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              title="Resize right panel"
+              onMouseDown={() => setIsResizingRight(true)}
+              className={`w-1 hover:w-2 cursor-col-resize bg-border ${isResizingRight ? 'bg-brand-blue select-none' : ''}`}
+            />
+            <div
+              className="border-l border-border bg-panel"
+              style={{ width: `${rightPanelWidth}px` } as React.CSSProperties}
+              data-right-panel
+            >
+              {/* Right panel header: layout toggle + tabs */}
+              <div className="px-3 pt-3 border-b border-border flex items-center gap-2">
+                <div className="flex items-center gap-1 mr-3">
+                  <span className="text-xs text-gray-400">Layout:</span>
+                  <button
+                    className={`px-2 py-1 text-xs rounded ${rightPanelLayout === 'tabs' ? 'bg-brand-blue text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'}`}
+                    onClick={() => setRightPanelLayout('tabs')}
+                    title="Tabs layout"
+                  >
+                    Tabs
+                  </button>
+                  <button
+                    className={`px-2 py-1 text-xs rounded ${rightPanelLayout === 'split' ? 'bg-brand-blue text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'}`}
+                    onClick={() => setRightPanelLayout('split')}
+                    title="Split layout"
+                  >
+                    Split
+                  </button>
+                </div>
+                <button
+                  className={`px-2 py-1 text-xs rounded ${rightPanelMode === 'tools' ? 'bg-brand-blue text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'}`}
+                  onClick={() => setRightPanelMode('tools')}
+                  title="Show AI Tools"
+                >
+                  Tools
+                </button>
+                <button
+                  className={`px-2 py-1 text-xs rounded ${rightPanelMode === 'enterprise' ? 'bg-brand-blue text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'}`}
+                  onClick={() => setRightPanelMode('enterprise')}
+                  title="Show Enterprise Tools"
+                >
+                  Enterprise
+                </button>
+              </div>
+              <div className="p-4 h-[calc(100vh-120px)] overflow-hidden">
+                {rightPanelLayout === 'tabs' ? (
+                  <>
+                    <div
+                      className={`${rightPanelMode === 'tools' ? 'block' : 'hidden'} h-full overflow-y-auto`}
+                    >
+                      <h3 className="text-lg font-semibold mb-4">AI Tools</h3>
+                      <AICodingToolsPanel
+                        selectedCode={selectedCode || activeFileContent}
+                        language={selectedLanguage}
+                        filePath={activeFilePath || ''}
+                        projectPath={state.projectPath || ''}
+                      />
+                    </div>
+                    <div
+                      className={`${rightPanelMode === 'enterprise' ? 'flex' : 'hidden'} h-full overflow-y-auto`}
+                    >
+                      <EnterpriseToolsPanel
+                        selectedCode={selectedCode || activeFileContent}
+                        language={selectedLanguage}
+                        filePath={activeFilePath || ''}
+                        projectPath={state.projectPath || ''}
+                        activeFilePath={activeFilePath || ''}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-full w-full flex overflow-hidden">
+                    <div
+                      className="h-full pr-2 overflow-hidden"
+                      style={{ width: `${Math.round(innerSplitRatio * 100)}%` } as React.CSSProperties}
+                    >
+                      <h3 className="text-lg font-semibold mb-4">AI Tools</h3>
+                      <div className="h-[calc(100%-1.5rem)] overflow-auto">
+                        <AICodingToolsPanel
+                          selectedCode={selectedCode || activeFileContent}
+                          language={selectedLanguage}
+                          filePath={activeFilePath || ''}
+                          projectPath={state.projectPath || ''}
+                        />
+                      </div>
+                    </div>
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      title="Resize Tools/Chat"
+                      onMouseDown={() => setIsResizingInner(true)}
+                      className={`w-1 hover:w-2 cursor-col-resize bg-border ${isResizingInner ? 'bg-brand-blue select-none' : ''}`}
+                    />
+                    <div
+                      className="h-full pl-2 overflow-hidden"
+                      style={{ width: `${Math.round((1 - innerSplitRatio) * 100)}%` } as React.CSSProperties}
+                      onDragOver={handleChatDragOver}
+                      onDrop={handleChatDrop}
+                    >
+                      {rightPanelMode === 'enterprise' ? (
+                        <div className="h-full overflow-y-auto">
+                          <EnterpriseToolsPanel
+                            selectedCode={selectedCode || activeFileContent}
+                            language={selectedLanguage}
+                            filePath={activeFilePath || ''}
+                            projectPath={state.projectPath || ''}
+                            activeFilePath={activeFilePath || ''}
+                          />
+                        </div>
+                      ) : (
+                        chatPanelContent('flex-1 overflow-y-auto h-[calc(100%-1.5rem)]')
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Full Enterprise Admin Modal */}
+      {isAdminModalOpen && (
+        <AdminModal
+          isOpen={isAdminModalOpen}
+          onClose={() => setIsAdminModalOpen(false)}
+          settings={state.appSettings}
+          onSave={(newSettings) => {
+            dispatch({ type: 'SET_APP_SETTINGS', payload: newSettings });
+            try {
+              const prev = loadSession();
+              saveSession({
+                ...prev,
+                appSettings: newSettings,
+                projectPath: state.projectPath,
+                selectedModelId: state.selectedModelId,
+              });
+            } catch {
+              /* ignore */
+            }
+            setIsAdminModalOpen(false);
+          }}
+        />
+      )}
+
+      <HelpModal isOpen={isHelpModalOpen} onClose={() => setIsHelpModalOpen(false)} />
+    </div>
+  );
+};
+
+const App: React.FC = () => {
+  const contextValue = {
+    addToast: (_message: string, _type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+      // TODO: Implement toast notifications
+    },
+    setLoadingState: (_action: string, _value: boolean) => {
+      // TODO: Implement global loading state management
+    },
+    isGlobalLoading: false,
+    appSettings: {} as AppSettings,
+    setAppSettings: (_settings: AppSettings) => {
+      // TODO: Implement app settings management
+    },
+  };
+
+  return (
+    <AppProvider value={contextValue}>
+      <AppContent />
+    </AppProvider>
+  );
+};
+
+export default App;

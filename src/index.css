@@ -1,0 +1,122 @@
+/* Tailwind CSS directives - these are valid and expected in a Tailwind project */
+/* stylelint-disable at-rule-no-unknown */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* stylelint-enable at-rule-no-unknown */
+
+/* Dark theme globals */
+html,
+body {
+  background-color: #1a202c; /* Dark background */
+  color: #f7fafc; /* Light text */
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'Roboto',
+    sans-serif;
+}
+
+#root {
+  background-color: #1a202c; /* Dark background */
+  min-height: 100vh;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #2d3748; /* Dark scrollbar track */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a5568; /* Dark gray scrollbar thumb */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #718096; /* Lighter gray on hover */
+}
+
+/* Monaco Editor theme compatibility - Dark theme */
+.monaco-editor {
+  background-color: #1e293b !important; /* Dark background for code editor */
+}
+
+.monaco-editor .margin {
+  background-color: #1a202c !important; /* Darker background for margins */
+}
+
+.monaco-editor .view-line {
+  color: #f7fafc !important; /* Light text */
+}
+
+/* Custom component styles - Dark theme */
+.glass-effect {
+  background: rgba(45, 55, 72, 0.9); /* Dark glass effect */
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1); /* Light border */
+}
+
+.gradient-border {
+  background: linear-gradient(45deg, #63b3ed, #b794f4, #4fd1c5);
+  padding: 1px;
+  border-radius: 8px;
+}
+
+.gradient-border > div {
+  background: #2d3748; /* Dark background for content */
+  border-radius: 7px;
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* AI Tools - Force 16px icons with emoji fallback */
+.tool-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.tool-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  display: block !important;
+}
+
+.tool-card {
+  transition: all 0.15s ease;
+}
+
+.tool-card:hover {
+  transform: translateY(-1px);
+}
+
+.tool-card.active {
+  box-shadow: 0 0 0 2px rgb(99 179 237 / 0.5);
+}

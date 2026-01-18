@@ -1,0 +1,947 @@
+// OneClickFixSystem.tsx - Automated one-click bug fixing system
+// Provides instant fixes for common issues with safety checks and rollback capabilities
+
+import React, { useState, useCallback } from 'react';
+import { ReviewComment, BugReport as CodeReviewBugReport, CodeReviewResult } from '../services/CodeReviewEngine';
+import { BugDetectionService } from '../services/BugDetectionService';
+
+export interface FixResult {
+  success: boolean;
+  originalCode: string;
+  fixedCode: string;
+  explanation: string;
+  warnings: string[];
+  rollbackData: string; // JSON string for rollback
+}
+
+export interface FixPreview {
+  comment: ReviewComment;
+  originalCode: string;
+  fixedCode: string;
+  explanation: string;
+  confidence: number;
+  riskLevel: 'low' | 'medium' | 'high';
+  estimatedImpact: string;
+}
+
+export interface OneClickFixSystemProps {
+  reviewResult: CodeReviewResult;
+  currentCode: string;
+  onFixApplied?: (result: FixResult) => void;
+  onFixPreview?: (preview: FixPreview) => void;
+  onRollback?: (rollbackData: string) => void;
+  className?: string;
+}
+
+// Helper function to get type icon
+function getTypeIcon(type: string): string {
+  const icons: Record<string, string> = {
+    'info': 'ℹ️',
+    'warning': '⚠️',
+    'error': '❌',
+    'suggestion': '💡',
+    'praise': '✅'
+  };
+  return icons[type] || '💬';
+}
+
+export const OneClickFixSystem: React.FC<OneClickFixSystemProps> = ({
+  reviewResult,
+  currentCode,
+  onFixApplied,
+  onFixPreview,
+  onRollback,
+  className = ''
+}) => {
+  const [fixingComments, setFixingComments] = useState<Set<string>>(new Set());
+  const [fixResults, setFixResults] = useState<Map<string, FixResult>>(new Map());
+  const [previewComment, setPreviewComment] = useState<ReviewComment | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const bugDetector = new BugDetectionService();
+
+  /**
+   * Apply a one-click fix for a specific comment
+   */
+  const applyFix = useCallback(async (comment: ReviewComment): Promise<FixResult> => {
+    setFixingComments(prev => new Set(prev).add(comment.id));
+
+    try {
+      // Find related bug report
+      const relatedBug = reviewResult.bugs.find(bug =>
+        bug.lineNumber === comment.lineNumber ||
+        bug.id === comment.id.replace('bug_', '')
+      );
+
+      if (!relatedBug) {
+        throw new Error('No related bug found for this comment');
+      }
+
+      // Create a compatible bug report for BugDetectionService
+      const compatibleBug = {
+        ...relatedBug,
+        category: relatedBug.category || 'general'
+      };
+
+      // Generate fix using bug detection service
+      const fixResult = await bugDetector.generateFix(
+        reviewResult.filePath,
+        currentCode,
+        compatibleBug as any
+      );
+
+      const result: FixResult = {
+        success: true,
+        originalCode: currentCode,
+        fixedCode: fixResult.fixedCode,
+        explanation: fixResult.explanation,
+        warnings: [],
+        rollbackData: JSON.stringify({
+          originalCode: currentCode,
+          commentId: comment.id,
+          timestamp: Date.now()
+        })
+      };
+
+      setFixResults(prev => new Map(prev).set(comment.id, result));
+
+      if (onFixApplied) {
+        onFixApplied(result);
+      }
+
+      return result;
+
+    } catch (error) {
+      const errorResult: FixResult = {
+        success: false,
+        originalCode: currentCode,
+        fixedCode: currentCode,
+        explanation: `Failed to apply fix: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        warnings: ['Fix application failed'],
+        rollbackData: JSON.stringify({
+          originalCode: currentCode,
+          commentId: comment.id,
+          timestamp: Date.now(),
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+      };
+
+      setFixResults(prev => new Map(prev).set(comment.id, errorResult));
+      return errorResult;
+
+    } finally {
+      setFixingComments(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(comment.id);
+        return newSet;
+      });
+    }
+  }, [reviewResult, currentCode, bugDetector, onFixApplied]);
+
+  /**
+   * Preview a fix before applying it
+   */
+  const previewFix = useCallback(async (comment: ReviewComment) => {
+    try {
+      const relatedBug = reviewResult.bugs.find(bug =>
+        bug.lineNumber === comment.lineNumber ||
+        bug.id === comment.id.replace('bug_', '')
+      );
+
+      if (!relatedBug) {
+        return;
+      }
+
+      // Create a compatible bug report for BugDetectionService
+      const compatibleBug = {
+        ...relatedBug,
+        category: relatedBug.category || 'general'
+      };
+
+      const fixResult = await bugDetector.generateFix(
+        reviewResult.filePath,
+        currentCode,
+        compatibleBug as any
+      );
+
+      const preview: FixPreview = {
+        comment,
+        originalCode: currentCode,
+        fixedCode: fixResult.fixedCode,
+        explanation: fixResult.explanation,
+        confidence: relatedBug.confidence,
+        riskLevel: calculateRiskLevel(comment, relatedBug),
+        estimatedImpact: calculateImpact(comment, relatedBug)
+      };
+
+      setPreviewComment(comment);
+      setShowPreview(true);
+
+      if (onFixPreview) {
+        onFixPreview(preview);
+      }
+    } catch (error) {
+      console.error('Failed to preview fix:', error);
+    }
+  }, [reviewResult, currentCode, bugDetector, onFixPreview]);
+
+  /**
+   * Rollback a previously applied fix
+   */
+  const rollbackFix = useCallback((commentId: string) => {
+    const result = fixResults.get(commentId);
+    if (result && result.rollbackData && onRollback) {
+      try {
+        const rollbackData = JSON.parse(result.rollbackData);
+        onRollback(rollbackData.originalCode);
+      } catch (error) {
+        console.error('Failed to rollback fix:', error);
+      }
+    }
+  }, [fixResults, onRollback]);
+
+  /**
+   * Apply fixes for all auto-fixable comments
+   */
+  const applyAllFixes = useCallback(async () => {
+    const fixableComments = reviewResult.reviewComments.filter(comment => comment.autoFixable);
+
+    for (const comment of fixableComments) {
+      await applyFix(comment);
+    }
+  }, [reviewResult.reviewComments, applyFix]);
+
+  /**
+   * Calculate risk level for a fix
+   */
+  const calculateRiskLevel = (comment: ReviewComment, bug: CodeReviewBugReport): 'low' | 'medium' | 'high' => {
+    if (bug.severity === 'critical' || comment.severity === 'critical') {
+      return 'high';
+    }
+
+    if (bug.severity === 'high' || comment.severity === 'high') {
+      return 'medium';
+    }
+
+    if (bug.confidence < 0.7) {
+      return 'medium';
+    }
+
+    return 'low';
+  };
+
+  /**
+   * Calculate estimated impact of a fix
+   */
+  const calculateImpact = (comment: ReviewComment, bug: CodeReviewBugReport): string => {
+    const impacts = [];
+
+    if (bug.severity === 'critical') {
+      impacts.push('Critical security or functionality fix');
+    }
+
+    if (comment.category === 'performance') {
+      impacts.push('Performance improvement');
+    }
+
+    if (comment.category === 'security') {
+      impacts.push('Security enhancement');
+    }
+
+    if (comment.category === 'maintainability') {
+      impacts.push('Code quality improvement');
+    }
+
+    return impacts.length > 0 ? impacts.join(', ') : 'General code improvement';
+  };
+
+  const fixableComments = reviewResult.reviewComments.filter(comment => comment.autoFixable);
+  const appliedFixes = Array.from(fixResults.values()).filter(result => result.success);
+
+  return (
+    <div className={`one-click-fix-system ${className}`}>
+      {/* Header with summary */}
+      <div className="fix-system-header">
+        <h3>🔧 One-Click Fix System</h3>
+        <div className="fix-stats">
+          <span className="stat">
+            <span className="stat-value">{fixableComments.length}</span>
+            Fixable Issues
+          </span>
+          <span className="stat">
+            <span className="stat-value">{appliedFixes.length}</span>
+            Fixes Applied
+          </span>
+        </div>
+      </div>
+
+      {/* Bulk actions */}
+      <div className="bulk-actions">
+        <button
+          className="bulk-fix-button"
+          onClick={applyAllFixes}
+          disabled={fixableComments.length === 0 || fixingComments.size > 0}
+        >
+          {fixingComments.size > 0 ? '🔄 Applying Fixes...' : '🚀 Apply All Fixes'}
+        </button>
+      </div>
+
+      {/* Fixable issues list */}
+      <div className="fixable-issues">
+        <h4>🔧 Available Fixes</h4>
+
+        {fixableComments.length === 0 ? (
+          <p className="no-fixes">No auto-fixable issues found.</p>
+        ) : (
+          <div className="issues-list">
+            {fixableComments.map(comment => {
+              const result = fixResults.get(comment.id);
+              const isFixing = fixingComments.has(comment.id);
+
+              return (
+                <div key={comment.id} className={`fixable-issue ${result ? 'fixed' : ''}`}>
+                  <div className="issue-header">
+                    <div className="issue-info">
+                      <span className="issue-type">{getTypeIcon(comment.type)}</span>
+                      <span className="issue-category">{comment.category}</span>
+                      <span className={`issue-severity ${comment.severity}`}>
+                        {comment.severity}
+                      </span>
+                    </div>
+
+                    <div className="issue-actions">
+                      <button
+                        className="preview-button"
+                        onClick={() => previewFix(comment)}
+                        disabled={isFixing}
+                        title="Preview fix"
+                      >
+                        👁️
+                      </button>
+
+                      <button
+                        className="apply-button"
+                        onClick={() => applyFix(comment)}
+                        disabled={isFixing}
+                        title="Apply fix"
+                      >
+                        {isFixing ? '⏳' : '🔧'}
+                      </button>
+
+                      {result && (
+                        <button
+                          className="rollback-button"
+                          onClick={() => rollbackFix(comment.id)}
+                          title="Rollback fix"
+                        >
+                          ↩️
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="issue-content">
+                    <p className="issue-message">{comment.message}</p>
+
+                    {result && (
+                      <div className={`fix-result ${result.success ? 'success' : 'error'}`}>
+                        <div className="result-header">
+                          <span className={`result-status ${result.success ? 'success' : 'error'}`}>
+                            {result.success ? '✅ Applied' : '❌ Failed'}
+                          </span>
+                          {result.success && (
+                            <button
+                              className="show-diff-button"
+                              onClick={() => {
+                                setPreviewComment(comment);
+                                setShowPreview(true);
+                              }}
+                            >
+                              Show Changes
+                            </button>
+                          )}
+                        </div>
+
+                        <p className="result-explanation">{result.explanation}</p>
+
+                        {result.warnings.length > 0 && (
+                          <div className="result-warnings">
+                            <h5>⚠️ Warnings:</h5>
+                            <ul>
+                              {result.warnings.map((warning, index) => (
+                                <li key={index}>{warning}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Fix preview modal */}
+      {showPreview && previewComment && (
+        <FixPreviewModal
+          preview={{
+            comment: previewComment,
+            originalCode: currentCode,
+            fixedCode: fixResults.get(previewComment.id)?.fixedCode || currentCode,
+            explanation: fixResults.get(previewComment.id)?.explanation || '',
+            confidence: 0.8, // Would come from bug detection
+            riskLevel: 'low', // Would be calculated
+            estimatedImpact: 'General improvement' // Would be calculated
+          }}
+          onClose={() => {
+            setShowPreview(false);
+            setPreviewComment(null);
+          }}
+          onApply={() => {
+            if (previewComment) {
+              applyFix(previewComment);
+              setShowPreview(false);
+              setPreviewComment(null);
+            }
+          }}
+        />
+      )}
+
+      <style>{`
+        .one-click-fix-system {
+          padding: 16px;
+          background: #f8f9fa;
+          border-radius: 8px;
+          border: 1px solid #e9ecef;
+        }
+
+        .fix-system-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 16px;
+        }
+
+        .fix-system-header h3 {
+          margin: 0;
+          color: #212529;
+        }
+
+        .fix-stats {
+          display: flex;
+          gap: 16px;
+        }
+
+        .stat {
+          text-align: center;
+          font-size: 12px;
+          color: #6c757d;
+        }
+
+        .stat-value {
+          display: block;
+          font-size: 18px;
+          font-weight: 600;
+          color: #007bff;
+        }
+
+        .bulk-actions {
+          margin-bottom: 16px;
+        }
+
+        .bulk-fix-button {
+          width: 100%;
+          padding: 12px;
+          background: #28a745;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+
+        .bulk-fix-button:hover:not(:disabled) {
+          background: #218838;
+        }
+
+        .bulk-fix-button:disabled {
+          background: #6c757d;
+          cursor: not-allowed;
+        }
+
+        .fixable-issues h4 {
+          margin: 0 0 12px 0;
+          color: #212529;
+        }
+
+        .no-fixes {
+          text-align: center;
+          color: #6c757d;
+          font-style: italic;
+          padding: 24px;
+        }
+
+        .issues-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .fixable-issue {
+          background: #2d3748;
+          border: 1px solid #dee2e6;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+
+        .fixable-issue.fixed {
+          border-color: #28a745;
+          background: #f8fff9;
+        }
+
+        .issue-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px 16px;
+          background: #f8f9fa;
+          border-bottom: 1px solid #dee2e6;
+        }
+
+        .issue-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .issue-type {
+          font-size: 16px;
+        }
+
+        .issue-category {
+          font-size: 12px;
+          color: #6c757d;
+        }
+
+        .issue-severity {
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+
+        .issue-severity.low {
+          background: #d1ecf1;
+          color: #0c5460;
+        }
+
+        .issue-severity.medium {
+          background: #fff3cd;
+          color: #856404;
+        }
+
+        .issue-severity.high {
+          background: #f8d7da;
+          color: #721c24;
+        }
+
+        .issue-severity.critical {
+          background: #dc3545;
+          color: white;
+        }
+
+        .issue-actions {
+          display: flex;
+          gap: 4px;
+        }
+
+        .preview-button,
+        .apply-button,
+        .rollback-button,
+        .show-diff-button {
+          padding: 4px 8px;
+          border: 1px solid #ced4da;
+          background: #2d3748;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .apply-button {
+          background: #007bff;
+          color: white;
+          border-color: #007bff;
+        }
+
+        .apply-button:hover:not(:disabled) {
+          background: #0056b3;
+        }
+
+        .rollback-button {
+          background: #ffc107;
+          color: #212529;
+          border-color: #ffc107;
+        }
+
+        .show-diff-button {
+          background: #17a2b8;
+          color: white;
+          border-color: #17a2b8;
+        }
+
+        .issue-content {
+          padding: 16px;
+        }
+
+        .issue-message {
+          margin: 0 0 12px 0;
+          color: #212529;
+          line-height: 1.4;
+        }
+
+        .fix-result {
+          margin-top: 12px;
+          padding: 12px;
+          border-radius: 6px;
+        }
+
+        .fix-result.success {
+          background: #d4edda;
+          border: 1px solid #c3e6cb;
+        }
+
+        .fix-result.error {
+          background: #f8d7da;
+          border: 1px solid #f5c6cb;
+        }
+
+        .result-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+
+        .result-status {
+          font-weight: 600;
+        }
+
+        .result-status.success {
+          color: #155724;
+        }
+
+        .result-status.error {
+          color: #721c24;
+        }
+
+        .result-explanation {
+          margin: 0;
+          font-size: 14px;
+          color: #212529;
+        }
+
+        .result-warnings {
+          margin-top: 12px;
+        }
+
+        .result-warnings h5 {
+          margin: 0 0 6px 0;
+          font-size: 12px;
+          color: #856404;
+        }
+
+        .result-warnings ul {
+          margin: 0;
+          padding-left: 20px;
+        }
+
+        .result-warnings li {
+          font-size: 12px;
+          color: #856404;
+          margin-bottom: 2px;
+        }
+      `}</style>
+    </div>
+  );
+};
+
+// Fix Preview Modal Component
+interface FixPreviewModalProps {
+  preview: FixPreview;
+  onClose: () => void;
+  onApply: () => void;
+}
+
+const FixPreviewModal: React.FC<FixPreviewModalProps> = ({ preview, onClose, onApply }) => {
+  const [showDiff, setShowDiff] = useState(true);
+
+  const getRiskClassName = (riskLevel: string) => {
+    switch (riskLevel) {
+      case 'low': return 'risk-low';
+      case 'medium': return 'risk-medium';
+      case 'high': return 'risk-high';
+      default: return '';
+    }
+  };
+
+  return (
+    <div className="fix-preview-modal-overlay">
+      <div className="fix-preview-modal">
+        <div className="modal-header">
+          <h3>🔧 Fix Preview</h3>
+          <button className="close-button" onClick={onClose}>×</button>
+        </div>
+
+        <div className="modal-content">
+          <div className="preview-info">
+            <div className="info-item">
+              <span className="label">Type:</span>
+              <span className="value">{preview.comment.type}</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Category:</span>
+              <span className="value">{preview.comment.category}</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Confidence:</span>
+              <span className="value">{Math.round(preview.confidence * 100)}%</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Risk Level:</span>
+              <span className={`value ${getRiskClassName(preview.riskLevel)}`}>{preview.riskLevel}</span>
+            </div>
+          </div>
+
+          <div className="preview-description">
+            <h4>📝 Description</h4>
+            <p>{preview.comment.message}</p>
+          </div>
+
+          <div className="preview-explanation">
+            <h4>💡 Fix Explanation</h4>
+            <p>{preview.explanation}</p>
+          </div>
+
+          {showDiff && (
+            <div className="diff-preview">
+              <div className="diff-header">
+                <h4>🔄 Code Changes</h4>
+                <button
+                  className="toggle-diff-button"
+                  onClick={() => setShowDiff(!showDiff)}
+                >
+                  {showDiff ? 'Hide' : 'Show'} Changes
+                </button>
+              </div>
+
+              <div className="diff-container">
+                <div className="diff-section">
+                  <h5>Before</h5>
+                  <pre className="diff-code original">{preview.originalCode}</pre>
+                </div>
+
+                <div className="diff-section">
+                  <h5>After</h5>
+                  <pre className="diff-code fixed">{preview.fixedCode}</pre>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="modal-actions">
+            <button className="cancel-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="apply-button" onClick={onApply}>
+              Apply Fix
+            </button>
+          </div>
+        </div>
+
+        <style>{`
+          .fix-preview-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+          }
+
+          .fix-preview-modal {
+            background: #2d3748;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90%;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+          }
+
+          .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid #e9ecef;
+          }
+
+          .modal-header h3 {
+            margin: 0;
+          }
+
+          .close-button {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #6c757d;
+          }
+
+          .modal-content {
+            padding: 24px;
+          }
+
+          .preview-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 6px;
+          }
+
+          .info-item {
+            display: flex;
+            justify-content: space-between;
+          }
+
+          .info-item .label {
+            font-weight: 600;
+            color: #495057;
+          }
+
+          .info-item .value {
+            color: #212529;
+          }
+
+          .risk-low {
+            color: #28a745;
+          }
+
+          .risk-medium {
+            color: #ffc107;
+          }
+
+          .risk-high {
+            color: #dc3545;
+          }
+
+          .preview-description,
+          .preview-explanation {
+            margin-bottom: 20px;
+          }
+
+          .preview-description h4,
+          .preview-explanation h4 {
+            margin: 0 0 8px 0;
+            color: #212529;
+          }
+
+          .preview-description p,
+          .preview-explanation p {
+            margin: 0;
+            color: #6c757d;
+            line-height: 1.5;
+          }
+
+          .diff-preview {
+            margin-bottom: 24px;
+          }
+
+          .diff-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+          }
+
+          .toggle-diff-button {
+            padding: 4px 12px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+          }
+
+          .diff-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+          }
+
+          .diff-section h5 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #495057;
+          }
+
+          .diff-code {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            max-height: 300px;
+            overflow-y: auto;
+          }
+
+          .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            padding-top: 16px;
+            border-top: 1px solid #e9ecef;
+          }
+
+          .cancel-button,
+          .apply-button {
+            padding: 8px 16px;
+            border: 1px solid;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+          }
+
+          .cancel-button {
+            background: #2d3748;
+            color: #6c757d;
+            border-color: #6c757d;
+          }
+
+          .apply-button {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+          }
+        `}</style>
+      </div>
+    </div>
+  );
+};
