@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Code IDE Desktop",
+  "description": "An IDE-like code assistant powered by the Gemini API. Features multi-agent refactoring, interactive code-editing chat, semantic code search, and a simulated desktop mode for advanced file handling.",
+  "requestFramePermissions": ["microphone"]
+}

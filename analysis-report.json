@@ -1,0 +1,468 @@
+{
+  "summary": {
+    "totalFiles": 245,
+    "issuesFound": 770,
+    "categories": {
+      "todo": 8,
+      "placeholder": 125,
+      "mock": 18,
+      "debug": 0,
+      "incomplete": 612,
+      "dependency": 4,
+      "feature": 3
+    },
+    "criticalIssues": 22
+  },
+  "topIssues": [
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-73-incomplete",
+      "file": "App.tsx",
+      "line": 73,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-82-incomplete",
+      "file": "App.tsx",
+      "line": 82,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-119-incomplete",
+      "file": "App.tsx",
+      "line": 119,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "onCreateSuite={(suite: any) => {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-172-incomplete",
+      "file": "App.tsx",
+      "line": 172,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "dispatch({ type: actionMap[key] as any, payload: value });"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-198-placeholder",
+      "file": "App.tsx",
+      "line": 198,
+      "type": "placeholder",
+      "severity": "low",
+      "message": "Comment indicates placeholder or incomplete work",
+      "codeSnippet": "// Keyboard shortcuts integration (placeholder implementations)"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-285-incomplete",
+      "file": "App.tsx",
+      "line": 285,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-328-incomplete",
+      "file": "App.tsx",
+      "line": 328,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "} catch (error: any) {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-386-incomplete",
+      "file": "App.tsx",
+      "line": 386,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-405-incomplete",
+      "file": "App.tsx",
+      "line": 405,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const collectFilePaths = (nodes: any[]): string[] => {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-464-incomplete",
+      "file": "App.tsx",
+      "line": 464,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "} catch (error: any) {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-480-incomplete",
+      "file": "App.tsx",
+      "line": 480,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "} catch (error: any) {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-613-incomplete",
+      "file": "App.tsx",
+      "line": 613,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-701-incomplete",
+      "file": "App.tsx",
+      "line": 701,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-744-incomplete",
+      "file": "App.tsx",
+      "line": 744,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "} catch (error: any) {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-780-incomplete",
+      "file": "App.tsx",
+      "line": 780,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-786-incomplete",
+      "file": "App.tsx",
+      "line": 786,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "} catch (error: any) {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-895-incomplete",
+      "file": "App.tsx",
+      "line": 895,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-938-incomplete",
+      "file": "App.tsx",
+      "line": 938,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "} catch (error: any) {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-972-incomplete",
+      "file": "App.tsx",
+      "line": 972,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\App.tsx-978-incomplete",
+      "file": "App.tsx",
+      "line": 978,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "} catch (error: any) {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\auth\\AuthComponent.jsx-60-placeholder",
+      "file": "auth\\AuthComponent.jsx",
+      "line": 60,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Email\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\auth\\AuthComponent.jsx-67-placeholder",
+      "file": "auth\\AuthComponent.jsx",
+      "line": 67,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Password\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\auth\\AuthComponent.jsx-79-placeholder",
+      "file": "auth\\AuthComponent.jsx",
+      "line": 79,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Email\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\auth\\AuthComponent.jsx-86-placeholder",
+      "file": "auth\\AuthComponent.jsx",
+      "line": 86,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Password\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminDashboard.tsx-222-incomplete",
+      "file": "components\\AdminDashboard.tsx",
+      "line": 222,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "onClick={() => setActiveTab(tab.id as any)}"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminDashboard.tsx-423-placeholder",
+      "file": "components\\AdminDashboard.tsx",
+      "line": 423,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"requests/min\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminDashboard.tsx-508-placeholder",
+      "file": "components\\AdminDashboard.tsx",
+      "line": 508,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"3600\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminDashboard.tsx-520-placeholder",
+      "file": "components\\AdminDashboard.tsx",
+      "line": 520,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"1000\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-107-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 107,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Define the assistant's core persona...\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-129-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 129,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Add coding standards, security guidelines, or checklists...\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-175-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 175,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Model ID (e.g., ollama/llama3)\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-303-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 303,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "{provided.placeholder}"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-394-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 394,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder={`Provide specialized instructions for the ${agent.role} persona.`}"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-530-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 530,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Provider name\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-550-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 550,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Base URL (optional)\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-559-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 559,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"API key environment variable (optional)\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-568-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 568,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Default model ID\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-818-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 818,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Workflow name\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-827-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 827,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Workflow JSON definition\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AdminModal.tsx-894-placeholder",
+      "file": "components\\AdminModal.tsx",
+      "line": 894,
+      "type": "placeholder",
+      "severity": "medium",
+      "message": "Placeholder text found",
+      "codeSnippet": "placeholder=\"Workflow name\""
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-49-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 49,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const [results, setResults] = useState<any>(null);"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-119-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 119,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api: any = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-125-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 125,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const flatten = (nodes: any[]) => {"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-153-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 153,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const res = await (window as any).electronAPI?.readFile?.(filePath);"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-175-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 175,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api: any = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-211-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 211,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api: any = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-288-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 288,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api: any = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-305-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 305,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api: any = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-372-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 372,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api: any = (window as any).electronAPI;"
+    },
+    {
+      "id": "C:\\workflow\\gemini-code-ide-desktop\\src\\components\\AICodingToolsPanel.tsx-387-incomplete",
+      "file": "components\\AICodingToolsPanel.tsx",
+      "line": 387,
+      "type": "incomplete",
+      "severity": "medium",
+      "message": "TypeScript \"any\" type used - loses type safety",
+      "codeSnippet": "const api: any = (window as any).electronAPI;"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "types": ["node", "./src/types/electron-api", "@types/express"],
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "baseUrl": "./",
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "noEmit": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src",
+    "scripts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "tsconfig.node.json"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "multi-agent/generated-*.ts",
+    "src/multi-agent/generated-*.ts",
+    "src/backend/**",
+    "src/test/**",
+    "src/e2e/**",
+    "src/components/admin/AdminVirtualizedComponents.tsx",
+    "src/components/admin/ErrorBoundary.tsx",
+    "src/components/admin/HealthCheckDashboard.tsx",
+    "src/components/admin/LazyAdminModal.tsx",
+    "src/components/admin/LazyTabs.tsx",
+    "src/components/admin/hooks/useErrorHandler.ts",
+    "src/hooks/useAdminQueries.ts",
+    "src/hooks/useAdminQueryConfig.ts",
+    "src/utils/errorLogger.ts",
+    "src/services/codeSimilarity.ts",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.stories.tsx"
+  ]
+}
